@@ -1,4 +1,3 @@
-import { describe, it } from "node:test";
 import supertest from "supertest";
 import { server } from "./server";
 
