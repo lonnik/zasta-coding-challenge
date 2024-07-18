@@ -1,4 +1,4 @@
-import { server } from "./server";
+import { app } from "./app";
 import { pool } from "./db";
 import { migrate } from "./db/migrate";
 
@@ -16,7 +16,7 @@ const start = async () => {
     // NOTE: normally this would be done in a separate migration script
     await migrate();
 
-    server.listen(port, () => {
+    app.listen(port, () => {
       console.log(`Server is running on http://localhost:${port}`);
     });
   } catch (error) {

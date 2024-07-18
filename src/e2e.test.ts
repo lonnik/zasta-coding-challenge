@@ -1,5 +1,5 @@
 import supertest from "supertest";
-import { server } from "./server";
+import { app } from "./app";
 import { migrate } from "./db/migrate";
 import { pool } from "./db";
 import { Field, Token } from "./types";
@@ -31,7 +31,7 @@ describe("server", () => {
         id: id,
         data: tokenizationData,
       };
-      await supertest(server)
+      await supertest(app)
         .post("/tokenize")
         .send(payload)
         .expect(201)
@@ -52,14 +52,14 @@ describe("server", () => {
         data: tokenizationData,
       };
 
-      await supertest(server).post("/tokenize").send(payload).expect(400);
+      await supertest(app).post("/tokenize").send(payload).expect(400);
     });
     it("should return status code 400 if the data field in the request payload is missing", async () => {
       const payload = {
         id: id,
       };
 
-      await supertest(server).post("/tokenize").send(payload).expect(400);
+      await supertest(app).post("/tokenize").send(payload).expect(400);
     });
     it("should return status code 400 if the id field is not a string", async () => {
       const payload = {
@@ -67,7 +67,7 @@ describe("server", () => {
         data: tokenizationData,
       };
 
-      await supertest(server).post("/tokenize").send(payload).expect(400);
+      await supertest(app).post("/tokenize").send(payload).expect(400);
     });
     it("should return status code 400 if the type of the data field is incorrect", async () => {
       const payload = {
@@ -75,7 +75,7 @@ describe("server", () => {
         data: "string that should be an object",
       };
 
-      await supertest(server).post("/tokenize").send(payload).expect(400);
+      await supertest(app).post("/tokenize").send(payload).expect(400);
     });
   });
   describe("POST /detokenize", () => {
@@ -98,10 +98,10 @@ describe("server", () => {
         },
       };
 
-      const res = await supertest(server).post("/tokenize").send(payload);
+      const res = await supertest(app).post("/tokenize").send(payload);
       tokenizedData = res.body.data;
 
-      await supertest(server).post("/tokenize").send(payload2);
+      await supertest(app).post("/tokenize").send(payload2);
     });
 
     afterAll(async () => {
@@ -115,7 +115,7 @@ describe("server", () => {
         data: { ...tokenizedData, field3: invalidToken },
       };
 
-      await supertest(server)
+      await supertest(app)
         .post("/detokenize")
         .send(payload)
         .expect(200)
@@ -143,14 +143,14 @@ describe("server", () => {
         data: tokenizedData,
       };
 
-      await supertest(server).post("/detokenize").send(payload).expect(400);
+      await supertest(app).post("/detokenize").send(payload).expect(400);
     });
     it("should return status code 400 if the data field in the request payload is missing", async () => {
       const payload = {
         id: id1,
       };
 
-      await supertest(server).post("/detokenize").send(payload).expect(400);
+      await supertest(app).post("/detokenize").send(payload).expect(400);
     });
     it.skip("should return status code 400 if a resource with the id was not found", async () => {
       const payload = {
@@ -158,7 +158,7 @@ describe("server", () => {
         data: tokenizedData,
       };
 
-      await supertest(server).post("/detokenize").send(payload).expect(400);
+      await supertest(app).post("/detokenize").send(payload).expect(400);
     });
     it.skip("should return status code 400 if a token is not associated with a field key", async () => {
       const payload = {
@@ -166,7 +166,7 @@ describe("server", () => {
         data: { ...tokenizedData, field1: tokenizedData.field2 },
       };
 
-      await supertest(server).post("/detokenize").send(payload).expect(400);
+      await supertest(app).post("/detokenize").send(payload).expect(400);
     });
     it.skip("should return status code 400 if a field key is not associated with a token and an id", async () => {
       const payload = {
@@ -174,7 +174,7 @@ describe("server", () => {
         data: { ...tokenizedData, field4: tokenizedData.field1 },
       };
 
-      await supertest(server).post("/detokenize").send(payload).expect(400);
+      await supertest(app).post("/detokenize").send(payload).expect(400);
     });
     it.skip("should return status code 400 if an id is not associated with a field key and its token", async () => {
       const payload = {
@@ -182,7 +182,7 @@ describe("server", () => {
         data: { field1: tokenizedData.field1 },
       };
 
-      await supertest(server).post("/detokenize").send(payload).expect(400);
+      await supertest(app).post("/detokenize").send(payload).expect(400);
     });
   });
 
@@ -202,7 +202,7 @@ describe("server", () => {
         },
       };
 
-      const res = await supertest(server).post("/tokenize").send(payload);
+      const res = await supertest(app).post("/tokenize").send(payload);
       const tokenizedData = res.body.data;
 
       const detokenizePayload = {
@@ -210,7 +210,7 @@ describe("server", () => {
         data: tokenizedData,
       };
 
-      await supertest(server)
+      await supertest(app)
         .post("/detokenize")
         .send(detokenizePayload)
         .expect(200)
@@ -234,7 +234,7 @@ describe("server", () => {
         },
       };
 
-      const res = await supertest(server).post("/tokenize").send(payload);
+      const res = await supertest(app).post("/tokenize").send(payload);
       const tokenizedData = res.body.data;
 
       const detokenizePayload = {
@@ -242,7 +242,7 @@ describe("server", () => {
         data: tokenizedData,
       };
 
-      await supertest(server)
+      await supertest(app)
         .post("/detokenize")
         .send(detokenizePayload)
         .expect(200)
@@ -266,7 +266,7 @@ describe("server", () => {
         },
       };
 
-      const res = await supertest(server).post("/tokenize").send(payload);
+      const res = await supertest(app).post("/tokenize").send(payload);
       const tokenizedData = res.body.data;
 
       const detokenizePayload = {
@@ -274,7 +274,7 @@ describe("server", () => {
         data: tokenizedData,
       };
 
-      await supertest(server)
+      await supertest(app)
         .post("/detokenize")
         .send(detokenizePayload)
         .expect(200)
@@ -298,7 +298,7 @@ describe("server", () => {
         },
       };
 
-      const res = await supertest(server).post("/tokenize").send(payload);
+      const res = await supertest(app).post("/tokenize").send(payload);
       const tokenizedData = res.body.data;
 
       const detokenizePayload = {
@@ -306,7 +306,7 @@ describe("server", () => {
         data: tokenizedData,
       };
 
-      await supertest(server)
+      await supertest(app)
         .post("/detokenize")
         .send(detokenizePayload)
         .expect(200)
