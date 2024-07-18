@@ -1,0 +1,29 @@
+version: '3'
+services:
+  db:
+    image: 'postgres:16.3'
+    restart: always
+    ports:
+      - '54321:5432'
+    environment:
+      POSTGRES_DB: zasta
+      POSTGRES_USER: zasta
+      POSTGRES_PASSWORD: zasta
+  app:
+    depends_on:
+      - db
+    build: .
+    command: npm run dev:local
+    volumes:
+      - ./:/home/node/app
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: development
+      DB_USER: zasta
+      DB_HOST: db
+      DB_NAME: zasta
+      DB_PASSWORD: zasta
+      DB_PORT: 5432
+      DATA_ENCRYPTION_KEY_HEX: f94a98e130c561ac9f499ecee45bb669efadda7a5132e5344fb57904c05273a5
+

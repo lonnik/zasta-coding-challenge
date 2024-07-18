@@ -1,25 +1,40 @@
 import { Request, Response } from "express";
-import { generateToken } from "./util";
-import { Field, RequestBody, Token } from "./types";
-import { reverseTokenStore, tokenStore } from "./data";
+import { Field, RequestBody, Token, Value } from "./types";
+import {
+  createTokenValueMapping,
+  getTokenValueMappingByTokens,
+} from "./queries";
+import { decrypt, encrypt } from "./util";
 
-export const tokenizeHandler = (
+export const tokenizeHandler = async (
   req: Request<any, any, RequestBody>,
   res: Response
 ) => {
-  const { id, data: inputData } = req.body;
+  const { id, data } = req.body;
 
   const tokenizedData: { [key: Field]: Token } = {};
 
-  for (const field in inputData) {
-    const token = generateToken();
-    const value = inputData[field];
+  // NOTE: it would be more performant to use a single query to insert all values instead of one query per value
+  for (const field in data) {
+    const { encryptedData, iv } = encrypt(
+      data[field],
+      process.env.DATA_ENCRYPTION_KEY_HEX!
+    );
+
+    let token: Token = "";
+    try {
+      const res = await createTokenValueMapping(encryptedData, iv);
+      token = res.token;
+    } catch (error) {
+      console.error("Error creating token value mapping", error);
+
+      // NOTE: normally you would want to return check the error type and return a more specific http status code
+      res.status(500).json({ error: "Internal server error" });
+      return;
+    }
 
     tokenizedData[field] = token;
-    reverseTokenStore.set(token, value);
   }
-
-  tokenStore.set(id, tokenizedData);
 
   res.status(201).json({
     id,
@@ -27,45 +42,49 @@ export const tokenizeHandler = (
   });
 };
 
-export const detokenizeHandler = (
+export const detokenizeHandler = async (
   req: Request<any, any, RequestBody>,
   res: Response
 ) => {
-  const { id, data: requestData } = req.body;
+  const { id, data } = req.body;
 
-  const tokenizedData = tokenStore.get(id);
+  const tokens = Object.values(data);
+  let tokenValueMap: Awaited<ReturnType<typeof getTokenValueMappingByTokens>> =
+    new Map();
+  try {
+    tokenValueMap = await getTokenValueMappingByTokens(tokens);
+  } catch (error) {
+    console.error("Error getting token value mapping", error);
 
-  // verify that resource with the id is in the data store
-  if (tokenizedData === undefined) {
-    res
-      .status(400)
-      .json({ error: `No resource associated with id: ${id} found` });
+    // NOTE: normally you would want to inspect the error and return a http status code based on the error
+    res.status(500).json({ error: "Internal server error" });
     return;
   }
 
-  const responseBody: { [key: Field]: { found: boolean; value: string } } = {};
+  // NOTE: there is no verification that the request field/token pairs are valid or that they are associated with the id in the request
 
-  for (const field in requestData) {
-    // verify that the token, the field name and the id of the request data are associated
-    if (requestData[field] !== tokenizedData[field]) {
-      res.status(400).json({ error: "The data object is not valid" });
-      return;
-    }
+  const responseData: { [key: Field]: { found: boolean; value: string } } = {};
+  for (const field in data) {
+    responseData[field] = { found: false, value: "" };
+    const token = data[field];
+    const encryptedValues = tokenValueMap.get(token);
 
-    responseBody[field] = { found: false, value: "" };
-    const token = requestData[field];
-    const value = reverseTokenStore.get(token);
-
-    if (value === undefined) {
+    if (encryptedValues === undefined) {
       continue;
     }
 
-    responseBody[field].value = value;
-    responseBody[field].found = true;
+    const value = decrypt(
+      encryptedValues.encryptedValue,
+      process.env.DATA_ENCRYPTION_KEY_HEX!,
+      encryptedValues.iv
+    ).toString();
+
+    responseData[field].value = value;
+    responseData[field].found = true;
   }
 
   res.status(200).json({
     id,
-    data: responseBody,
+    data: responseData,
   });
 };
