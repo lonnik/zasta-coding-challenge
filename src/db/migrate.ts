@@ -1,5 +1,6 @@
-import { createTokenValueMappingTable } from "../queries";
+import { createServicesTable, createTokensTable } from "../queries";
 
 export const migrate = async () => {
-  await createTokenValueMappingTable();
+  await createTokensTable();
+  await createServicesTable();
 };

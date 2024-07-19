@@ -2,12 +2,26 @@ import supertest from "supertest";
 import { app } from "./app";
 import { migrate } from "./db/migrate";
 import { pool } from "./db";
-import { Field, Token } from "./types";
-import { truncateTables } from "./queries";
+import { Service, Token } from "./type";
+import { truncateTokensTable } from "./queries";
 import { v4 as uuidv4 } from "uuid";
+import { seedServices } from "./db/seed";
+import { services as serviceFixtures } from "./fixtures";
 
 describe("server", () => {
-  beforeAll(migrate);
+  let visitorToken: string;
+  let tokenizerToken: string;
+  let detokenizerToken: string;
+
+  beforeAll(async () => {
+    await migrate();
+    await seedServices(serviceFixtures);
+
+    // obtain JWT tokens for visitor, tokenizer and detokenizer role
+    visitorToken = await getJwtToken(serviceFixtures[0]);
+    tokenizerToken = await getJwtToken(serviceFixtures[1]);
+    detokenizerToken = await getJwtToken(serviceFixtures[2]);
+  });
 
   afterAll(async () => {
     await pool.end();
@@ -21,24 +35,25 @@ describe("server", () => {
 
   describe("POST /tokenize", () => {
     afterEach(async () => {
-      await truncateTables();
+      await truncateTokensTable();
     });
 
     const id = "req-123";
 
     it("should return status code 201 and body with tokenized data", async () => {
       const payload = {
-        id: id,
+        id,
         data: tokenizationData,
       };
       await supertest(app)
         .post("/tokenize")
+        .auth(tokenizerToken, { type: "bearer" })
         .send(payload)
         .expect(201)
         .expect("Content-Type", /json/)
         .expect((res) => {
           expect(res.body).toEqual({
-            id: id,
+            id,
             data: {
               field1: expect.any(String),
               field2: expect.any(String),
@@ -47,19 +62,59 @@ describe("server", () => {
           });
         });
     });
+    it("should return status code 401 if the request is not authenticated", async () => {
+      const payload = {
+        id,
+        data: tokenizationData,
+      };
+
+      await supertest(app).post("/tokenize").send(payload).expect(401);
+    });
+    it("should return status code 401 if the request is authenticated with an invalid token", async () => {
+      const payload = {
+        id,
+        data: tokenizationData,
+      };
+
+      await supertest(app)
+        .post("/tokenize")
+        .auth("invalid token", { type: "bearer" })
+        .send(payload)
+        .expect(401);
+    });
+    it("should return status code 403 if the request is authenticated with a token that does not have the correct role", async () => {
+      const payload = {
+        id,
+        data: tokenizationData,
+      };
+
+      await supertest(app)
+        .post("/tokenize")
+        .auth(visitorToken, { type: "bearer" })
+        .send(payload)
+        .expect(403);
+    });
     it("should return status code 400 if the id field in the request payload is missing", async () => {
       const payload = {
         data: tokenizationData,
       };
 
-      await supertest(app).post("/tokenize").send(payload).expect(400);
+      await supertest(app)
+        .post("/tokenize")
+        .auth(tokenizerToken, { type: "bearer" })
+        .send(payload)
+        .expect(400);
     });
     it("should return status code 400 if the data field in the request payload is missing", async () => {
       const payload = {
-        id: id,
+        id,
       };
 
-      await supertest(app).post("/tokenize").send(payload).expect(400);
+      await supertest(app)
+        .post("/tokenize")
+        .auth(tokenizerToken, { type: "bearer" })
+        .send(payload)
+        .expect(400);
     });
     it("should return status code 400 if the id field is not a string", async () => {
       const payload = {
@@ -67,21 +122,29 @@ describe("server", () => {
         data: tokenizationData,
       };
 
-      await supertest(app).post("/tokenize").send(payload).expect(400);
+      await supertest(app)
+        .post("/tokenize")
+        .auth(tokenizerToken, { type: "bearer" })
+        .send(payload)
+        .expect(400);
     });
     it("should return status code 400 if the type of the data field is incorrect", async () => {
       const payload = {
-        id: id,
+        id,
         data: "string that should be an object",
       };
 
-      await supertest(app).post("/tokenize").send(payload).expect(400);
+      await supertest(app)
+        .post("/tokenize")
+        .auth(tokenizerToken, { type: "bearer" })
+        .send(payload)
+        .expect(400);
     });
   });
   describe("POST /detokenize", () => {
     const id1 = "req-33445";
     const id2 = "req-123";
-    let tokenizedData: { [key: Field]: Token };
+    let tokenizedData: { [key: string]: Token };
 
     beforeAll(async () => {
       const payload = {
@@ -98,14 +161,17 @@ describe("server", () => {
         },
       };
 
-      const res = await supertest(app).post("/tokenize").send(payload);
+      const res = await supertest(app)
+        .post("/tokenize")
+        .auth(detokenizerToken, { type: "bearer" })
+        .send(payload);
       tokenizedData = res.body.data;
 
       await supertest(app).post("/tokenize").send(payload2);
     });
 
     afterAll(async () => {
-      await truncateTables();
+      await truncateTokensTable();
     });
 
     it("should return status code 200 and body with detokenized data", async () => {
@@ -117,6 +183,7 @@ describe("server", () => {
 
       await supertest(app)
         .post("/detokenize")
+        .auth(detokenizerToken, { type: "bearer" })
         .send(payload)
         .expect(200)
         .expect("Content-Type", /json/)
@@ -138,19 +205,47 @@ describe("server", () => {
           },
         });
     });
+    it("should return status code 401 if the request is not authenticated", async () => {
+      const payload = {
+        id: id1,
+        data: tokenizedData,
+      };
+
+      await supertest(app).post("/detokenize").send(payload).expect(401);
+    });
+    it("should return status code 403 if the request is authenticated with a token that does not have the correct role", async () => {
+      const payload = {
+        id: id1,
+        data: tokenizedData,
+      };
+
+      await supertest(app)
+        .post("/detokenize")
+        .auth(tokenizerToken, { type: "bearer" })
+        .send(payload)
+        .expect(403);
+    });
     it("should return status code 400 if the id field in the request payload is missing", async () => {
       const payload = {
         data: tokenizedData,
       };
 
-      await supertest(app).post("/detokenize").send(payload).expect(400);
+      await supertest(app)
+        .post("/detokenize")
+        .auth(detokenizerToken, { type: "bearer" })
+        .send(payload)
+        .expect(400);
     });
     it("should return status code 400 if the data field in the request payload is missing", async () => {
       const payload = {
         id: id1,
       };
 
-      await supertest(app).post("/detokenize").send(payload).expect(400);
+      await supertest(app)
+        .post("/detokenize")
+        .auth(detokenizerToken, { type: "bearer" })
+        .send(payload)
+        .expect(400);
     });
     it.skip("should return status code 400 if a resource with the id was not found", async () => {
       const payload = {
@@ -158,7 +253,11 @@ describe("server", () => {
         data: tokenizedData,
       };
 
-      await supertest(app).post("/detokenize").send(payload).expect(400);
+      await supertest(app)
+        .post("/detokenize")
+        .auth(detokenizerToken, { type: "bearer" })
+        .send(payload)
+        .expect(400);
     });
     it.skip("should return status code 400 if a token is not associated with a field key", async () => {
       const payload = {
@@ -166,7 +265,11 @@ describe("server", () => {
         data: { ...tokenizedData, field1: tokenizedData.field2 },
       };
 
-      await supertest(app).post("/detokenize").send(payload).expect(400);
+      await supertest(app)
+        .post("/detokenize")
+        .auth(detokenizerToken, { type: "bearer" })
+        .send(payload)
+        .expect(400);
     });
     it.skip("should return status code 400 if a field key is not associated with a token and an id", async () => {
       const payload = {
@@ -174,7 +277,11 @@ describe("server", () => {
         data: { ...tokenizedData, field4: tokenizedData.field1 },
       };
 
-      await supertest(app).post("/detokenize").send(payload).expect(400);
+      await supertest(app)
+        .post("/detokenize")
+        .auth(detokenizerToken, { type: "bearer" })
+        .send(payload)
+        .expect(400);
     });
     it.skip("should return status code 400 if an id is not associated with a field key and its token", async () => {
       const payload = {
@@ -182,7 +289,11 @@ describe("server", () => {
         data: { field1: tokenizedData.field1 },
       };
 
-      await supertest(app).post("/detokenize").send(payload).expect(400);
+      await supertest(app)
+        .post("/detokenize")
+        .auth(detokenizerToken, { type: "bearer" })
+        .send(payload)
+        .expect(400);
     });
   });
 
@@ -190,7 +301,7 @@ describe("server", () => {
     const id = "req-123";
 
     afterEach(async () => {
-      await truncateTables();
+      await truncateTokensTable();
     });
 
     it("should correctly tokenize and detokenize a very long string", async () => {
@@ -202,7 +313,10 @@ describe("server", () => {
         },
       };
 
-      const res = await supertest(app).post("/tokenize").send(payload);
+      const res = await supertest(app)
+        .post("/tokenize")
+        .auth(detokenizerToken, { type: "bearer" })
+        .send(payload);
       const tokenizedData = res.body.data;
 
       const detokenizePayload = {
@@ -212,6 +326,7 @@ describe("server", () => {
 
       await supertest(app)
         .post("/detokenize")
+        .auth(detokenizerToken, { type: "bearer" })
         .send(detokenizePayload)
         .expect(200)
         .expect({
@@ -234,7 +349,10 @@ describe("server", () => {
         },
       };
 
-      const res = await supertest(app).post("/tokenize").send(payload);
+      const res = await supertest(app)
+        .post("/tokenize")
+        .auth(detokenizerToken, { type: "bearer" })
+        .send(payload);
       const tokenizedData = res.body.data;
 
       const detokenizePayload = {
@@ -244,6 +362,7 @@ describe("server", () => {
 
       await supertest(app)
         .post("/detokenize")
+        .auth(detokenizerToken, { type: "bearer" })
         .send(detokenizePayload)
         .expect(200)
         .expect({
@@ -266,7 +385,10 @@ describe("server", () => {
         },
       };
 
-      const res = await supertest(app).post("/tokenize").send(payload);
+      const res = await supertest(app)
+        .post("/tokenize")
+        .auth(detokenizerToken, { type: "bearer" })
+        .send(payload);
       const tokenizedData = res.body.data;
 
       const detokenizePayload = {
@@ -276,6 +398,7 @@ describe("server", () => {
 
       await supertest(app)
         .post("/detokenize")
+        .auth(detokenizerToken, { type: "bearer" })
         .send(detokenizePayload)
         .expect(200)
         .expect({
@@ -298,7 +421,10 @@ describe("server", () => {
         },
       };
 
-      const res = await supertest(app).post("/tokenize").send(payload);
+      const res = await supertest(app)
+        .post("/tokenize")
+        .auth(detokenizerToken, { type: "bearer" })
+        .send(payload);
       const tokenizedData = res.body.data;
 
       const detokenizePayload = {
@@ -308,6 +434,7 @@ describe("server", () => {
 
       await supertest(app)
         .post("/detokenize")
+        .auth(detokenizerToken, { type: "bearer" })
         .send(detokenizePayload)
         .expect(200)
         .expect({
@@ -322,3 +449,15 @@ describe("server", () => {
     });
   });
 });
+
+const getJwtToken = async (service: Service) => {
+  const res = await supertest(app)
+    .post("/auth")
+    .send({
+      serviceId: service.serviceId,
+      secret: service.secret,
+    })
+    .expect(200);
+
+  return res.body.token as string;
+};

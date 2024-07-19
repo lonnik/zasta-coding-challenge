@@ -1,9 +1,25 @@
+import { genSalt, hash } from "bcryptjs";
 import { query } from "./db";
-import { Token, TokenValueMapping } from "./types";
+import { Role, ServiceTableRow, Token, TokenTableRow } from "./type";
 
-export const createTokenValueMappingTable = async () => {
+// CREATE TABLE statements
+
+export const createServicesTable = async () => {
   await query(`
-  CREATE TABLE IF NOT EXISTS token_value_mappings (
+    CREATE TYPE role AS ENUM ('VISITOR', 'TOKENIZER', 'DETOKENIZER');
+  `);
+  await query(`
+  CREATE TABLE IF NOT EXISTS services (
+    service_id VARCHAR(256) PRIMARY KEY,
+    hashed_secret VARCHAR(60) NOT NULL,
+    role role NOT NULL
+  )
+`);
+};
+
+export const createTokensTable = async () => {
+  await query(`
+  CREATE TABLE IF NOT EXISTS tokens (
     token UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     encrypted_value BYTEA NOT NULL,
     iv BYTEA NOT NULL
@@ -11,12 +27,11 @@ export const createTokenValueMappingTable = async () => {
 `);
 };
 
-export const createTokenValueMapping = async (
-  encryptedValue: Buffer,
-  iv: Buffer
-) => {
-  const res = await query<TokenValueMapping>(
-    `INSERT INTO token_value_mappings (encrypted_value, iv) 
+// INSERT statements
+
+export const insertToken = async (encryptedValue: Buffer, iv: Buffer) => {
+  const res = await query<TokenTableRow>(
+    `INSERT INTO tokens (encrypted_value, iv) 
     VALUES ($1, $2) 
     RETURNING *`,
     [encryptedValue, iv]
@@ -25,10 +40,30 @@ export const createTokenValueMapping = async (
   return res.rows[0];
 };
 
-export const getTokenValueMappingByTokens = async (tokens: Token[]) => {
-  const res = await query<TokenValueMapping>(
+export const insertService = async (
+  serviceId: string,
+  secret: string,
+  role: Role
+) => {
+  const salt = await genSalt(10);
+  const hashedSecret = await hash(secret, salt);
+
+  const res = await query<ServiceTableRow>(
+    `INSERT INTO services (service_id, hashed_secret, role) 
+    VALUES ($1, $2, $3)
+    RETURNING *`,
+    [serviceId, hashedSecret, role.toString()]
+  );
+
+  return res.rows[0];
+};
+
+// SELECT statements
+
+export const getToken = async (tokens: Token[]) => {
+  const res = await query<TokenTableRow>(
     `SELECT * 
-    FROM token_value_mappings 
+    FROM tokens 
     WHERE token = ANY($1)`,
     [tokens]
   );
@@ -47,6 +82,19 @@ export const getTokenValueMappingByTokens = async (tokens: Token[]) => {
   return tokenValueMap;
 };
 
-export const truncateTables = async () => {
-  await query("TRUNCATE TABLE token_value_mappings");
+export const getService = async (serviceId: string) => {
+  const res = await query<ServiceTableRow>(
+    `SELECT * 
+    FROM services 
+    WHERE service_id = $1`,
+    [serviceId]
+  );
+
+  return res.rows[0];
+};
+
+// TRUNCATE TABLE statements
+
+export const truncateTokensTable = async () => {
+  await query("TRUNCATE TABLE tokens");
 };
